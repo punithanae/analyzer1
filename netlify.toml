@@ -1,0 +1,28 @@
+[build]
+  publish = "dist"
+  command = "npm run build"
+
+[dev]
+  command = "npm run dev"
+
+# Redirect API calls to serverless functions
+[[redirects]]
+  from = "/api/yahoo/*"
+  to = "/.netlify/functions/yahoo/:splat"
+  status = 200
+
+[[redirects]]
+  from = "/api/alphavantage/*"
+  to = "/.netlify/functions/alphavantage/:splat"
+  status = 200
+
+[[redirects]]
+  from = "/api/twelvedata/*"
+  to = "/.netlify/functions/twelvedata/:splat"
+  status = 200
+
+# SPA fallback
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
