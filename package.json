@@ -19,6 +19,8 @@
     "lightweight-charts": "^5.1.0",
     "lucide-react": "^0.577.0",
     "react-router-dom": "^7.13.1",
-    "recharts": "^3.8.0"
+    "recharts": "^3.8.0",
+    "rss-parser": "^3.13.0",
+    "sentiment": "^5.0.2"
   }
 }

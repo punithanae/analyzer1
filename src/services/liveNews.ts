@@ -1,109 +1,147 @@
 /**
- * Live News Service
- * Fetches real financial news from Alpha Vantage News Sentiment API
- * Falls back to Twelve Data news if Alpha Vantage is rate-limited
- * Implements caching to reduce API calls
+ * Real-Time News Scraper Engine
+ * Scrapes Yahoo Finance and Google News via RSS
+ * Uses dictionary-based sentiment analysis and keyword matching to find affected stocks
+ * Works 100% in the browser (Serverless/Static friendly)
  */
 
 import type { NewsArticle } from '../types';
-import { getApiConfig } from './api';
 
-// Simple in-memory cache to avoid rate limits
+// Simple in-memory cache to prevent spamming
 let newsCache: { data: NewsArticle[]; timestamp: number } | null = null;
-const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+const CACHE_DURATION = 2 * 60 * 1000; // 2 minutes
 
-function mapSentiment(label: string, score: number): 'bullish' | 'bearish' | 'neutral' {
-  if (label === 'Bullish' || label === 'Somewhat-Bullish' || score > 0.15) return 'bullish';
-  if (label === 'Bearish' || label === 'Somewhat-Bearish' || score < -0.15) return 'bearish';
-  return 'neutral';
+// ==================== Sentiment Dictionary ====================
+const POSITIVE_WORDS = new Set(['surge', 'jump', 'gain', 'profit', 'growth', 'dividend', 'high', 'record', 'buy', 'bull', 'bullish', 'up', 'soar', 'strong', 'positive', 'beat', 'rally', 'upgrade', 'success', 'expand', 'boost', 'promising']);
+const NEGATIVE_WORDS = new Set(['plunge', 'fall', 'drop', 'loss', 'decline', 'crash', 'low', 'sell', 'bear', 'bearish', 'down', 'weak', 'negative', 'miss', 'downgrade', 'fail', 'shrink', 'cut', 'slump', 'crisis', 'debt', 'risk']);
+
+function analyzeSentiment(text: string): { label: 'bullish' | 'bearish' | 'neutral', score: number } {
+  const words = text.toLowerCase().match(/\b\w+\b/g) || [];
+  let score = 0;
+  
+  words.forEach(word => {
+    if (POSITIVE_WORDS.has(word)) score += 0.2;
+    if (NEGATIVE_WORDS.has(word)) score -= 0.2;
+  });
+
+  // Cap score between -1 and 1
+  score = Math.max(-1, Math.min(1, score));
+  
+  if (score > 0.15) return { label: 'bullish', score };
+  if (score < -0.15) return { label: 'bearish', score };
+  return { label: 'neutral', score };
 }
 
-function mapImpact(score: number): 'high' | 'medium' | 'low' {
-  const abs = Math.abs(score);
-  if (abs > 0.35) return 'high';
-  if (abs > 0.15) return 'medium';
-  return 'low';
-}
+// ==================== Stock Impact Matching ====================
+const KNOWN_TICKERS: Record<string, string[]> = {
+  // Indian
+  'RELIANCE': ['reliance', 'ambani', 'jio'],
+  'TCS': ['tcs', 'tata consultancy'],
+  'HDFCBANK': ['hdfc'],
+  'INFY': ['infosys', 'infy'],
+  'ICICIBANK': ['icici'],
+  'SBIN': ['sbi', 'state bank of india'],
+  'TATAMOTORS': ['tata motors', 'jlr', 'jaguar'],
+  'BAJFINANCE': ['bajaj finance'],
+  'HINDUNILVR': ['hul', 'unilever'],
+  'WIPRO': ['wipro'],
+  // US
+  'AAPL': ['apple', 'iphone', 'mac'],
+  'MSFT': ['microsoft', 'windows', 'azure'],
+  'GOOGL': ['google', 'alphabet', 'youtube'],
+  'AMZN': ['amazon', 'aws', 'bezos'],
+  'NVDA': ['nvidia', 'gpu', 'jensen'],
+  'TSLA': ['tesla', 'elon musk', 'ev'],
+  'META': ['meta', 'facebook', 'instagram']
+};
 
-function formatAVTime(timeStr: string): string {
-  const y = timeStr.slice(0, 4), m = timeStr.slice(4, 6), d = timeStr.slice(6, 8);
-  const h = timeStr.slice(9, 11), mn = timeStr.slice(11, 13);
-  return `${y}-${m}-${d}T${h}:${mn}:00Z`;
-}
-
-/** Fetch from Alpha Vantage News Sentiment API */
-async function fetchAlphaVantageNews(): Promise<NewsArticle[]> {
-  const config = getApiConfig();
-  if (!config.alphaVantageKey) return [];
-
-  try {
-    const url = `/api/alphavantage/query?function=NEWS_SENTIMENT&apikey=${config.alphaVantageKey}&sort=LATEST&limit=50&topics=financial_markets,economy_monetary,technology`;
-    const response = await fetch(url);
-    if (!response.ok) return [];
-
-    const data = await response.json();
-
-    // Handle rate limit
-    if (data.Note || data.Information) {
-      console.warn('Alpha Vantage rate limited:', data.Note || data.Information);
-      return [];
+function findAffectedStocks(text: string): string[] {
+  const affected: string[] = [];
+  const lowerText = text.toLowerCase();
+  
+  for (const [ticker, keywords] of Object.entries(KNOWN_TICKERS)) {
+    if (keywords.some(kw => lowerText.includes(kw))) {
+      affected.push(ticker);
     }
-
-    const feed = data.feed || [];
-    return feed.map((item: any, index: number): NewsArticle => ({
-      id: `av-${index}-${Date.now()}`,
-      title: item.title,
-      summary: item.summary,
-      source: item.source,
-      url: item.url,
-      publishedAt: formatAVTime(item.time_published),
-      sentiment: mapSentiment(item.overall_sentiment_label, item.overall_sentiment_score),
-      sentimentScore: item.overall_sentiment_score,
-      tickers: (item.ticker_sentiment || []).map((ts: any) => ts.ticker).slice(0, 5),
-      category: (item.topics?.[0]?.topic?.replace(/_/g, ' ') || 'General').replace(/^\w/, (c: string) => c.toUpperCase()),
-      impactLevel: mapImpact(item.overall_sentiment_score),
-    }));
-  } catch {
-    return [];
   }
+  return affected.slice(0, 3); // Max 3 tags
 }
 
-/** Fetch from Twelve Data news as fallback */
-async function fetchTwelveDataNews(): Promise<NewsArticle[]> {
-  const config = getApiConfig();
-  if (!config.twelveDataKey) return [];
+// ==================== RSS Parsing ====================
 
+async function fetchRssFeed(url: string, sourceName: string): Promise<NewsArticle[]> {
   try {
-    // Twelve Data doesn't have a news endpoint on free tier,
-    // but let's try a combined approach using their market movers
-    return [];
-  } catch {
+    // Use allorigins to bypass CORS for client-side RSS fetching
+    const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
+    const response = await fetch(proxyUrl);
+    if (!response.ok) return [];
+    
+    const json = await response.json();
+    const xmlText = json.contents;
+    
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(xmlText, 'text/xml');
+    const items = Array.from(doc.querySelectorAll('item'));
+    
+    return items.map((item, index) => {
+      const title = item.querySelector('title')?.textContent || '';
+      const link = item.querySelector('link')?.textContent || '';
+      const pubDate = item.querySelector('pubDate')?.textContent || new Date().toISOString();
+      const description = item.querySelector('description')?.textContent || '';
+      
+      const fullText = (title + ' ' + description);
+      const { label, score } = analyzeSentiment(fullText);
+      const affectedTickers = findAffectedStocks(fullText);
+      
+      let category = 'Market';
+      if (fullText.toLowerCase().includes('earnings') || fullText.toLowerCase().includes('profit')) category = 'Earnings';
+      if (fullText.toLowerCase().includes('ai') || fullText.toLowerCase().includes('tech')) category = 'Technology';
+      
+      return {
+        id: `${sourceName}-${index}-${Date.now()}`,
+        title,
+        summary: description.replace(/<[^>]*>?/gm, '').substring(0, 150) + '...', // Strip HTML tags
+        source: sourceName,
+        url: link,
+        publishedAt: new Date(pubDate).toISOString(),
+        sentiment: label,
+        sentimentScore: score,
+        tickers: affectedTickers,
+        category,
+        impactLevel: Math.abs(score) > 0.3 ? 'high' : (Math.abs(score) > 0.1 ? 'medium' : 'low')
+      };
+    });
+  } catch (err) {
+    console.error(`Failed to fetch ${sourceName}:`, err);
     return [];
   }
 }
 
-/** Fetch live news with caching to reduce API calls */
+/** Fetch live news from multiple sources */
 export async function fetchLiveNews(): Promise<NewsArticle[]> {
-  // Return cached data if still fresh
+  // Use cache if fresh
   if (newsCache && (Date.now() - newsCache.timestamp) < CACHE_DURATION) {
     return newsCache.data;
   }
 
-  // Try Alpha Vantage first
-  let articles = await fetchAlphaVantageNews();
+  // Fetch US and Indian news in parallel
+  const [yahooNews, googleNews] = await Promise.all([
+    fetchRssFeed('https://feeds.finance.yahoo.com/rss/2.0/headline?s=SPY,QQQ,AAPL,MSFT,TSLA,NVDA,GOOGL,AMZN,META&region=US&lang=en-US', 'Yahoo Finance'),
+    fetchRssFeed('https://news.google.com/rss/search?q=stock+market+india+OR+NSE+OR+BSE+OR+Nifty+OR+Sensex&hl=en-IN&gl=IN&ceid=IN:en', 'Google News India')
+  ]);
 
-  // Fallback to Twelve Data
-  if (articles.length === 0) {
-    articles = await fetchTwelveDataNews();
+  // Combine and sort by date descending
+  const allNews = [...yahooNews, ...googleNews].sort((a, b) => 
+    new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime()
+  );
+
+  // Take top 50
+  const topNews = allNews.slice(0, 50);
+
+  // Save to cache
+  if (topNews.length > 0) {
+    newsCache = { data: topNews, timestamp: Date.now() };
   }
 
-  // Cache valid results
-  if (articles.length > 0) {
-    newsCache = { data: articles, timestamp: Date.now() };
-  } else if (newsCache) {
-    // Return stale cache data instead of nothing
-    return newsCache.data;
-  }
-
-  return articles;
+  return topNews;
 }
