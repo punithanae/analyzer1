@@ -1,23 +1,33 @@
 import { BrowserRouter as Router, Routes, Route, NavLink } from 'react-router-dom';
+import { lazy, Suspense } from 'react';
 import {
   LayoutDashboard, Newspaper, Zap, Search, BarChart3, Brain,
   Settings, Bell
 } from 'lucide-react';
 import Dashboard from './pages/Dashboard';
-import News from './pages/News';
-import Signals from './pages/Signals';
-import Screener from './pages/Screener';
-import Analysis from './pages/Analysis';
-import Predictions from './pages/Predictions';
-import SettingsPage from './pages/Settings';
 import { useEffect, useState } from 'react';
 import { requestNotificationPermission } from './engine/notifications';
 
+// Lazy load non-critical pages for faster initial load
+const News = lazy(() => import('./pages/News'));
+const Signals = lazy(() => import('./pages/Signals'));
+const Screener = lazy(() => import('./pages/Screener'));
+const Analysis = lazy(() => import('./pages/Analysis'));
+const Predictions = lazy(() => import('./pages/Predictions'));
+const SettingsPage = lazy(() => import('./pages/Settings'));
+
+function PageLoader() {
+  return (
+    <div className="loading-center" style={{ minHeight: 400 }}>
+      <div className="spinner" style={{ width: 40, height: 40, borderWidth: 3 }} />
+    </div>
+  );
+}
+
 export default function App() {
-  const [newsCount] = useState(3); // simulated unread count
+  const [newsCount] = useState(3);
 
   useEffect(() => {
-    // Request notification permission on first load
     requestNotificationPermission();
   }, []);
 
@@ -25,7 +35,6 @@ export default function App() {
     const now = new Date();
     const hours = now.getHours();
     const day = now.getDay();
-    // Indian market hours: Mon-Fri, 9:15 AM - 3:30 PM IST
     return day >= 1 && day <= 5 && hours >= 9 && hours < 16;
   };
 
@@ -97,15 +106,17 @@ export default function App() {
 
         {/* Main Content */}
         <main className="main-content">
-          <Routes>
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/news" element={<News />} />
-            <Route path="/signals" element={<Signals />} />
-            <Route path="/screener" element={<Screener />} />
-            <Route path="/analysis" element={<Analysis />} />
-            <Route path="/predictions" element={<Predictions />} />
-            <Route path="/settings" element={<SettingsPage />} />
-          </Routes>
+          <Suspense fallback={<PageLoader />}>
+            <Routes>
+              <Route path="/" element={<Dashboard />} />
+              <Route path="/news" element={<News />} />
+              <Route path="/signals" element={<Signals />} />
+              <Route path="/screener" element={<Screener />} />
+              <Route path="/analysis" element={<Analysis />} />
+              <Route path="/predictions" element={<Predictions />} />
+              <Route path="/settings" element={<SettingsPage />} />
+            </Routes>
+          </Suspense>
         </main>
       </div>
     </Router>

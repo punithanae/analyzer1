@@ -37,7 +37,9 @@ const TIMEFRAMES = [
   { label: '1M', range: '1mo', interval: '1h' },
   { label: '3M', range: '3mo', interval: '1d' },
   { label: '6M', range: '6mo', interval: '1d' },
-  { label: '1Y', range: '1y', interval: '1wk' },
+  { label: '1Y', range: '1y', interval: '1d' },
+  { label: '2Y', range: '2y', interval: '1wk' },
+  { label: '5Y', range: '5y', interval: '1wk' },
 ];
 
 interface Indicators {

@@ -59,8 +59,7 @@ const TICKER_SYMBOLS = [
   { yahoo: 'USDINR%3DX', label: 'USD/INR' },
   { yahoo: 'BTC-USD',    label: 'BTC' },
 ];
-
-// ==================== API Source Fetchers ====================
+// ==================== API Types ====================
 
 interface PriceResult {
   price: number;
@@ -74,15 +73,32 @@ interface PriceResult {
   source: 'yahoo' | 'alphavantage' | 'twelvedata';
 }
 
-/** Fetch from Yahoo Finance v8 Chart API */
+// ==================== Price Cache ====================
+// Prevents excess API calls during fast refresh intervals
+const priceCache = new Map<string, { data: PriceResult; expiry: number }>();
+
+function getCachedPrice(key: string): PriceResult | null {
+  const entry = priceCache.get(key);
+  if (entry && Date.now() < entry.expiry) return entry.data;
+  return null;
+}
+
+function setCachedPrice(key: string, data: PriceResult, ttlMs: number): void {
+  priceCache.set(key, { data, expiry: Date.now() + ttlMs });
+}
+
+/** Fetch from Yahoo Finance v8 Chart API (10s cache) */
 async function fetchYahooPrice(symbol: string): Promise<PriceResult | null> {
+  const cacheKey = `yahoo:${symbol}`;
+  const cached = getCachedPrice(cacheKey);
+  if (cached) return cached;
   try {
     const r = await fetch(`/api/yahoo/v8/finance/chart/${symbol}?range=1d&interval=1m`);
     if (!r.ok) return null;
     const j = await r.json();
     const meta = j?.chart?.result?.[0]?.meta;
     if (!meta?.regularMarketPrice) return null;
-    return {
+    const result: PriceResult = {
       price: meta.regularMarketPrice,
       prevClose: meta.previousClose || meta.chartPreviousClose || 0,
       high: meta.regularMarketDayHigh || 0,
@@ -93,6 +109,8 @@ async function fetchYahooPrice(symbol: string): Promise<PriceResult | null> {
       marketCap: meta.marketCap,
       source: 'yahoo',
     };
+    setCachedPrice(cacheKey, result, 10_000); // 10s cache
+    return result;
   } catch { return null; }
 }
 
