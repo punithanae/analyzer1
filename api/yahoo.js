@@ -3,7 +3,7 @@ export default async function handler(req, res) {
   const url = new URL(req.url, `http://${req.headers.host}`);
   // Strip /api/yahoo prefix to get the Yahoo Finance path
   const yahoPath = url.pathname.replace(/^\/api\/yahoo/, '') + url.search;
-  const targetUrl = `https://query1.finance.yahoo.com${yahoPath}`;
+  const targetUrl = `https://query2.finance.yahoo.com${yahoPath}`;
 
   try {
     const response = await fetch(targetUrl, {
