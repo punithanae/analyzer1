@@ -2,7 +2,7 @@ import { BrowserRouter as Router, Routes, Route, NavLink } from 'react-router-do
 import { lazy, Suspense } from 'react';
 import {
   LayoutDashboard, Newspaper, Zap, Search, BarChart3, Brain,
-  Settings, Bell
+  Bell
 } from 'lucide-react';
 import Dashboard from './pages/Dashboard';
 import { useEffect, useState } from 'react';
@@ -14,7 +14,7 @@ const Signals = lazy(() => import('./pages/Signals'));
 const Screener = lazy(() => import('./pages/Screener'));
 const Analysis = lazy(() => import('./pages/Analysis'));
 const Predictions = lazy(() => import('./pages/Predictions'));
-const SettingsPage = lazy(() => import('./pages/Settings'));
+// Lazy load pages
 
 function PageLoader() {
   return (
@@ -83,11 +83,6 @@ export default function App() {
               <span>Predictions</span>
             </NavLink>
 
-            <div className="nav-section-label">System</div>
-            <NavLink to="/settings" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-              <Settings size={20} />
-              <span>Settings</span>
-            </NavLink>
           </nav>
 
           <div className="sidebar-footer">
@@ -114,7 +109,7 @@ export default function App() {
               <Route path="/screener" element={<Screener />} />
               <Route path="/analysis" element={<Analysis />} />
               <Route path="/predictions" element={<Predictions />} />
-              <Route path="/settings" element={<SettingsPage />} />
+
             </Routes>
           </Suspense>
         </main>
