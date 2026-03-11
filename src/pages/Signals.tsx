@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Zap, Wifi, Loader, TrendingUp, TrendingDown, Minus, RefreshCw } from 'lucide-react';
-import { generateLiveSignals } from '../engine/signals';
+import { Zap, Wifi, Loader, TrendingUp, TrendingDown, Minus, RefreshCw, Search } from 'lucide-react';
+import { generateLiveSignals, generateSignalForSymbol } from '../engine/signals';
 import type { TradingSignal, SignalAction, SignalType } from '../types';
 
 export default function Signals() {
@@ -11,6 +11,8 @@ export default function Signals() {
   const [filterType, setFilterType] = useState<'ALL' | SignalType>('ALL');
   const [filterMarket, setFilterMarket] = useState<'ALL' | 'IN' | 'US'>('ALL');
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searching, setSearching] = useState(false);
 
   const fetchSignals = async () => {
     setLoading(true);
@@ -38,6 +40,27 @@ export default function Signals() {
     if (filterMarket !== 'ALL' && s.market !== filterMarket) return false;
     return true;
   });
+
+  const handleSearch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!searchQuery.trim()) return;
+    setSearching(true);
+    try {
+      const sig = await generateSignalForSymbol(searchQuery.trim().toUpperCase());
+      if (sig) {
+        setSignals(prev => [sig, ...prev.filter(s => s.symbol !== sig.symbol)]);
+        setExpandedId(sig.id);
+        setSearchQuery('');
+      } else {
+        alert(`Could not generate signal for ${searchQuery}. Check symbol (use .NS for NSE) or ensure sufficient historical data.`);
+      }
+    } catch(err) {
+      console.error(err);
+      alert('Search failed');
+    } finally {
+      setSearching(false);
+    }
+  };
 
   const actionIcon = (action: SignalAction) => {
     if (action === 'BUY') return <TrendingUp size={14} />;
@@ -97,9 +120,30 @@ export default function Signals() {
       </div>
 
       <div className="page-body">
-        {/* Filters */}
-        <div className="filter-bar">
-          <div className="filter-group">
+        {/* Filters and Search */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-md)', marginBottom: 'var(--space-lg)' }}>
+          <form className="filter-bar" style={{ marginBottom: 0 }} onSubmit={handleSearch}>
+            <div style={{ position: 'relative', flex: 1, maxWidth: 400 }}>
+              <input 
+                className="search-input" 
+                style={{ width: '100%', paddingLeft: 40 }} 
+                placeholder="Search any stock (e.g., TSLA, INFY.NS)..." 
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                disabled={searching}
+              />
+              <Search size={16} color="var(--text-muted)" style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)' }} />
+            </div>
+            <button type="submit" className="btn btn-primary" disabled={searching || !searchQuery.trim()}>
+              {searching ? <Loader size={16} className="spinner" style={{ borderWidth: 2 }} /> : 'Analyze'}
+            </button>
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)', marginLeft: 'var(--space-sm)' }}>
+              Hint: Use .NS for Indian stocks (e.g. ZOMATO.NS)
+            </span>
+          </form>
+
+          <div className="filter-bar" style={{ marginBottom: 0 }}>
+            <div className="filter-group">
             {(['ALL', 'BUY', 'SELL', 'HOLD'] as const).map(a => (
               <button key={a} className={`filter-btn ${filterAction === a ? 'active' : ''}`} onClick={() => setFilterAction(a)}>
                 {a === 'ALL' ? 'All Signals' : a}
@@ -123,6 +167,7 @@ export default function Signals() {
           <span style={{ fontSize: '0.8rem', color: 'var(--text-tertiary)', marginLeft: 'auto' }}>
             {filtered.length} signals
           </span>
+        </div>
         </div>
 
         {/* Signal Cards Grid */}

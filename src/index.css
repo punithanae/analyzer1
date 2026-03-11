@@ -1086,6 +1086,26 @@ body {
   .metric-grid {
     grid-template-columns: 1fr;
   }
+  .grid-2, .grid-3 {
+    grid-template-columns: 1fr;
+  }
+  .data-table {
+    display: block;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+  .page-title {
+    font-size: 1.25rem;
+  }
+  .card {
+    padding: var(--space-md);
+  }
+  .factors-grid {
+    grid-template-columns: 1fr;
+  }
+  .chart-container {
+    padding: var(--space-sm);
+  }
 }
 
 /* ==================== ANIMATIONS ==================== */

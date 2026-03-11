@@ -92,11 +92,26 @@ async function fetchRssFeed(url: string, sourceName: string): Promise<NewsArticl
       const fullText = (title + ' ' + description);
       const { label, score } = analyzeSentiment(fullText);
       const affectedTickers = findAffectedStocks(fullText);
+      const fullTextLower = fullText.toLowerCase();
       
       let category = 'Market';
-      if (fullText.toLowerCase().includes('earnings') || fullText.toLowerCase().includes('profit')) category = 'Earnings';
-      if (fullText.toLowerCase().includes('ai') || fullText.toLowerCase().includes('tech')) category = 'Technology';
+      if (fullTextLower.includes('earnings') || fullTextLower.includes('profit')) category = 'Earnings';
+      if (fullTextLower.includes('ai') || fullTextLower.includes('tech')) category = 'Technology';
       
+      // Calculate Nifty 50 impact level
+      let impactScore = Math.abs(score);
+      const NIFTY_KEYWORDS = ['nifty', 'nse', 'bse', 'sensex', 'rbi', 'finance minister', 'sebi', 'inflation'];
+      const mentionsNifty = NIFTY_KEYWORDS.some(kw => fullTextLower.includes(kw));
+      
+      if (mentionsNifty) impactScore += 0.4;
+      if (affectedTickers.length > 1) impactScore += 0.2;
+      if (sourceName === 'Google News India') impactScore += 0.1;
+      
+      const isHighImpact = impactScore > 0.45;
+      if (isHighImpact && !affectedTickers.includes('NIFTY50')) {
+          affectedTickers.unshift('NIFTY50');
+      }
+
       return {
         id: `${sourceName}-${index}-${Date.now()}`,
         title,
@@ -108,7 +123,7 @@ async function fetchRssFeed(url: string, sourceName: string): Promise<NewsArticl
         sentimentScore: score,
         tickers: affectedTickers,
         category,
-        impactLevel: Math.abs(score) > 0.3 ? 'high' : (Math.abs(score) > 0.1 ? 'medium' : 'low')
+        impactLevel: isHighImpact ? 'high' : (impactScore > 0.25 ? 'medium' : 'low')
       };
     });
   } catch (err) {

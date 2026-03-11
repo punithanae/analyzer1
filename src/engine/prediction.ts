@@ -4,6 +4,8 @@
  */
 
 import type { PredictionResult, PredictionFactor } from '../types';
+import { generateOptionsSetup } from './options';
+import { fetchLiveNews } from '../services/liveNews';
 
 interface ChartMeta {
   regularMarketPrice: number;
@@ -191,26 +193,38 @@ function calcVolumeFactor(volumes: number[]): { signal: number; description: str
   return { signal: Math.max(-1, Math.min(1, signal)), description: desc };
 }
 
-function calcSentimentFromPrice(niftyCloses: number[]): { signal: number; description: string } {
-  if (niftyCloses.length < 5) return { signal: 0, description: 'Insufficient data' };
-  
-  // Calculate recent momentum from last 5 days of price action
-  const last5Returns = [];
-  for (let i = niftyCloses.length - 5; i < niftyCloses.length; i++) {
-    last5Returns.push((niftyCloses[i] - niftyCloses[i - 1]) / niftyCloses[i - 1] * 100);
+async function calcNewsSentimentFactor(): Promise<{ signal: number; description: string }> {
+  try {
+    const news = await fetchLiveNews();
+    if (!news || news.length === 0) return { signal: 0, description: 'No news data available' };
+    
+    // Filter to last 24 hours of Nifty/Market impacting news
+    const now = Date.now();
+    const recentNews = news.filter(n => (now - new Date(n.publishedAt).getTime()) < 24 * 60 * 60 * 1000);
+    
+    if (recentNews.length === 0) return { signal: 0, description: 'No recent impactful news' };
+    
+    // Calculate aggregate sentiment
+    let totalScore = 0;
+    let highImpactCount = 0;
+    
+    recentNews.forEach(n => {
+      const weight = n.impactLevel === 'high' ? 1.5 : (n.impactLevel === 'medium' ? 1.0 : 0.5);
+      totalScore += (n.sentimentScore * weight);
+      if (n.impactLevel === 'high') highImpactCount++;
+    });
+    
+    const avgScore = totalScore / recentNews.length;
+    // Normalize to roughly -1 to 1
+    const signal = Math.max(-1, Math.min(1, avgScore * 2));
+    
+    return {
+      signal,
+      description: `Analyzed ${recentNews.length} recent articles (${highImpactCount} high impact). Sentiment is ${signal > 0.2 ? 'bullish' : signal < -0.2 ? 'bearish' : 'neutral'}.`,
+    };
+  } catch (error) {
+    return { signal: 0, description: 'Failed to fetch news sentiment' };
   }
-  
-  const avgReturn = last5Returns.reduce((a, b) => a + b, 0) / last5Returns.length;
-  const positiveCount = last5Returns.filter(r => r > 0).length;
-  
-  let signal = avgReturn * 0.3;
-  if (positiveCount >= 4) signal += 0.2;
-  else if (positiveCount <= 1) signal -= 0.2;
-  
-  return {
-    signal: Math.max(-1, Math.min(1, signal)),
-    description: `${positiveCount}/5 last sessions positive, avg move ${avgReturn > 0 ? '+' : ''}${avgReturn.toFixed(2)}%`,
-  };
 }
 
 async function calcGlobalCuesFactor(): Promise<{ signal: number; description: string }> {
@@ -296,6 +310,95 @@ function calcInstitutionalFactor(closes: number[], volumes: number[]): { signal:
   };
 }
 
+// ==================== Adaptive Machine Learning Model ====================
+
+interface HistoricalPrediction {
+  date: string; // YYYY-MM-DD
+  factors: { name: string; signal: number; weight: number }[];
+  predictedScore: number;
+}
+
+function getAdaptiveWeights(): Record<string, number> {
+  const defaultWeights: Record<string, number> = {
+    'Trend (EMA Crossover)': 20,
+    'Momentum (RSI + MACD)': 20,
+    'Volume Profile': 10,
+    'Market Sentiment': 15,
+    'Global Cues (US Markets)': 15,
+    'Volatility (ATR)': 10,
+    'Institutional Flow (OBV)': 10,
+  };
+
+  try {
+    const saved = localStorage.getItem('nifty_adaptive_weights');
+    if (saved) return JSON.parse(saved);
+  } catch (e) {
+    console.warn('Could not read adaptive weights', e);
+  }
+  return defaultWeights;
+}
+
+function evaluateAndLearn(todayPrice: number, prevClose: number) {
+  try {
+    const historyStr = localStorage.getItem('nifty_prediction_history');
+    if (!historyStr) return;
+    
+    const historyArray: HistoricalPrediction[] = JSON.parse(historyStr);
+    const history = Array.isArray(historyArray) ? historyArray.find(h => h.date === new Date().toISOString().split('T')[0]) : historyArray;
+    
+    // Only learn if we have a prediction for today and market has moved today
+    if (history && history.date && todayPrice !== prevClose) {
+      const actualDirection = todayPrice > prevClose ? 1 : -1;
+      let weights = getAdaptiveWeights();
+      let totalWeight = 0;
+      
+      history.factors.forEach(f => {
+        const factorDirection = f.signal > 0.1 ? 1 : f.signal < -0.1 ? -1 : 0;
+        if (factorDirection === actualDirection) {
+          weights[f.name] += 0.5; // Reward accurate signals
+        } else if (factorDirection !== 0) {
+          weights[f.name] -= 0.5; // Penalize wrong signals
+        }
+        weights[f.name] = Math.max(2, Math.min(35, weights[f.name])); // constrain weights
+        totalWeight += weights[f.name];
+      });
+      
+      Object.keys(weights).forEach(k => {
+        weights[k] = (weights[k] / totalWeight) * 100;
+      });
+      
+      localStorage.setItem('nifty_adaptive_weights', JSON.stringify(weights));
+    }
+  } catch (e) {
+    console.warn('Learning process failed', e);
+  }
+}
+
+function savePredictionForLearning(score: number, factors: PredictionFactor[], targetDate: string) {
+  try {
+    const toSave: HistoricalPrediction = {
+      date: targetDate,
+      predictedScore: score,
+      factors: factors.map(f => ({ name: f.name, signal: f.signal, weight: f.weight }))
+    };
+    
+    let historyArray: HistoricalPrediction[] = [];
+    const existingStr = localStorage.getItem('nifty_prediction_history');
+    if (existingStr) {
+      const parsed = JSON.parse(existingStr);
+      historyArray = Array.isArray(parsed) ? parsed : [parsed];
+    }
+    
+    // Remove if already exists for target date
+    historyArray = historyArray.filter(h => h.date !== targetDate);
+    // Add new and keep last 10
+    historyArray.unshift(toSave);
+    historyArray = historyArray.slice(0, 10);
+    
+    localStorage.setItem('nifty_prediction_history', JSON.stringify(historyArray));
+  } catch (e) {}
+}
+
 // ==================== Main Prediction Function ====================
 
 export async function computeLivePrediction(): Promise<PredictionResult | null> {
@@ -314,20 +417,24 @@ export async function computeLivePrediction(): Promise<PredictionResult | null> 
     const trend = calcTrendFactor(closes);
     const momentum = calcMomentumFactor(closes);
     const volume = calcVolumeFactor(volumes);
-    const sentiment = calcSentimentFromPrice(closes);
+    const sentiment = await calcNewsSentimentFactor();
     const globalCues = await calcGlobalCuesFactor();
     const volatility = calcVolatilityFactor(closes, highs, lows);
     const institutional = calcInstitutionalFactor(closes, volumes);
     
-    // Weighted score
+    // Adaptive Machine Learning: Adjust weights based on past performance
+    evaluateAndLearn(meta.regularMarketPrice, meta.previousClose);
+    const weights = getAdaptiveWeights();
+    
+    // Weighted score dynamically populated
     const factors: PredictionFactor[] = [
-      { name: 'Trend (EMA Crossover)', weight: 20, signal: trend.signal, description: trend.description, icon: 'TrendingUp' },
-      { name: 'Momentum (RSI + MACD)', weight: 20, signal: momentum.signal, description: momentum.description, icon: 'Zap' },
-      { name: 'Volume Profile', weight: 10, signal: volume.signal, description: volume.description, icon: 'BarChart3' },
-      { name: 'Market Sentiment', weight: 15, signal: sentiment.signal, description: sentiment.description, icon: 'Newspaper' },
-      { name: 'Global Cues (US Markets)', weight: 15, signal: globalCues.signal, description: globalCues.description, icon: 'Globe' },
-      { name: 'Volatility (ATR)', weight: 10, signal: volatility.signal, description: volatility.description, icon: 'Activity' },
-      { name: 'Institutional Flow (OBV)', weight: 10, signal: institutional.signal, description: institutional.description, icon: 'Users' },
+      { name: 'Trend (EMA Crossover)', weight: weights['Trend (EMA Crossover)'], signal: trend.signal, description: trend.description, icon: 'TrendingUp' },
+      { name: 'Momentum (RSI + MACD)', weight: weights['Momentum (RSI + MACD)'], signal: momentum.signal, description: momentum.description, icon: 'Zap' },
+      { name: 'Volume Profile', weight: weights['Volume Profile'], signal: volume.signal, description: volume.description, icon: 'BarChart3' },
+      { name: 'Market Sentiment', weight: weights['Market Sentiment'], signal: sentiment.signal, description: sentiment.description, icon: 'Newspaper' },
+      { name: 'Global Cues (US Markets)', weight: weights['Global Cues (US Markets)'], signal: globalCues.signal, description: globalCues.description, icon: 'Globe' },
+      { name: 'Volatility (ATR)', weight: weights['Volatility (ATR)'], signal: volatility.signal, description: volatility.description, icon: 'Activity' },
+      { name: 'Institutional Flow (OBV)', weight: weights['Institutional Flow (OBV)'], signal: institutional.signal, description: institutional.description, icon: 'Users' },
     ];
     
     const totalScore = factors.reduce((sum, f) => sum + (f.weight / 100) * f.signal, 0);
@@ -362,14 +469,21 @@ export async function computeLivePrediction(): Promise<PredictionResult | null> 
     if (tomorrow.getDay() === 0) tomorrow.setDate(tomorrow.getDate() + 1);
     if (tomorrow.getDay() === 6) tomorrow.setDate(tomorrow.getDate() + 2);
     
+    const targetDate = tomorrow.toISOString().split('T')[0];
+    savePredictionForLearning(totalScore, factors, targetDate);
+    
+    // Generate Options setup based on predicted score and ATR
+    const optionsSetup = generateOptionsSetup(currentPrice, totalScore, atr14, totalScore > 0);
+    
     return {
-      date: tomorrow.toISOString().split('T')[0],
+      date: targetDate,
       prediction,
       score: Math.round(totalScore * 100) / 100,
       confidence,
       factors,
       predictedRange: { low: predictedRangeLow, high: predictedRangeHigh },
       previousClose: currentPrice,
+      optionsSetup,
     };
   } catch (error) {
     console.error('Prediction computation failed:', error);

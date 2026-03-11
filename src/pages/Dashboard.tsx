@@ -5,7 +5,7 @@ import { mockIndices, mockStocks, mockSignals, mockNews, tickerData as mockTicke
 import { fetchLiveIndices, fetchLiveStocks, fetchTickerData } from '../services/liveData';
 import type { MarketIndex, StockQuote } from '../types';
 
-const REFRESH_INTERVAL = 5000; // 5 seconds
+const REFRESH_INTERVAL = 2000; // 2 seconds
 
 export default function Dashboard() {
   const navigate = useNavigate();

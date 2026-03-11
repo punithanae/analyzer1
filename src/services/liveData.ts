@@ -109,7 +109,7 @@ async function fetchYahooPrice(symbol: string): Promise<PriceResult | null> {
       marketCap: meta.marketCap,
       source: 'yahoo',
     };
-    setCachedPrice(cacheKey, result, 10_000); // 10s cache
+    setCachedPrice(cacheKey, result, 2_000); // 2s cache
     return result;
   } catch { return null; }
 }

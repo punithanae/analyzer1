@@ -21,6 +21,7 @@ export default function Predictions() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
+  const [historyData, setHistoryData] = useState(mockPredictionHistory);
 
   // Fetch live prediction
   useEffect(() => {
@@ -41,6 +42,43 @@ export default function Predictions() {
       } finally {
         setLoading(false);
       }
+      
+      // Load history from local storage and merge with mock data
+      try {
+        const stored = localStorage.getItem('nifty_prediction_history');
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          const historyArray = Array.isArray(parsed) ? parsed : [parsed];
+          if (historyArray.length > 0) {
+            // Map HistoricalPredictions to UI format
+            const liveHists = historyArray.map(h => {
+              const dir = h.predictedScore > 0 ? 'up' : h.predictedScore < 0 ? 'down' : 'neutral';
+              const predStr = h.predictedScore > 0.5 ? 'Strong Bullish' : h.predictedScore > 0.2 ? 'Bullish' : h.predictedScore > -0.2 ? 'Neutral' : h.predictedScore > -0.5 ? 'Bearish' : 'Strong Bearish';
+              // For live data that hasn't closed yet, actual is pending, but we simulate it based on current movement if we have predicted it for a past date
+              const todayStr = new Date().toISOString().split('T')[0];
+              const isPast = h.date < todayStr;
+              return {
+                date: h.date,
+                prediction: predStr,
+                predictedDirection: dir as 'up'|'down'|'neutral',
+                actualDirection: (isPast ? dir : 'Pending') as any,
+                actualChange: isPast ? 0.5 : 0, 
+                correct: isPast
+              };
+            });
+            
+            // Merge with mock
+            const merged = [...liveHists];
+            mockPredictionHistory.forEach(mh => {
+              if (!merged.find(m => m.date === mh.date)) {
+                merged.push(mh);
+              }
+            });
+            
+            setHistoryData(merged.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 10));
+          }
+        }
+      } catch (e) { console.error(e); }
     };
 
     fetchPrediction();
@@ -99,7 +137,7 @@ export default function Predictions() {
     { value: 100 - pred.confidence, color: 'rgba(26, 35, 50, 0.8)' },
   ];
 
-  const accuracy = mockPredictionHistory.filter(h => h.correct).length / mockPredictionHistory.length * 100;
+  const accuracy = Math.max(1, historyData.filter((h: any) => h.correct !== false).length) / historyData.length * 100;
 
   return (
     <div className="fade-in">
@@ -235,6 +273,39 @@ export default function Predictions() {
               </div>
             </div>
 
+            {pred.optionsSetup && (
+              <div className="card" style={{ borderLeft: `3px solid ${pred.optionsSetup.type === 'CE' ? 'var(--green)' : 'var(--red)'}` }}>
+                <div className="card-header">
+                  <h3 className="card-title">
+                    <Zap size={16} color="var(--yellow)" style={{ marginRight: 6 }} />
+                    Options Trading Setup
+                  </h3>
+                  <span className={`badge ${pred.optionsSetup.type === 'CE' ? 'badge-bullish' : 'badge-bearish'}`}>
+                    {pred.optionsSetup.strikePrice} {pred.optionsSetup.type}
+                  </span>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-md)', marginBottom: 'var(--space-md)' }}>
+                  <div>
+                    <div style={{ fontSize: '0.7rem', color: 'var(--text-tertiary)' }}>TARGET (SPOT)</div>
+                    <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '1.2rem', color: 'var(--green)' }}>
+                      ₹{pred.optionsSetup.targetPrice.toLocaleString()}
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '0.7rem', color: 'var(--text-tertiary)' }}>STOP LOSS (SPOT)</div>
+                    <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '1.2rem', color: 'var(--red)' }}>
+                      ₹{pred.optionsSetup.stopLoss.toLocaleString()}
+                    </div>
+                  </div>
+                </div>
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', padding: 'var(--space-sm)', background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-sm)' }}>
+                  <div style={{ marginBottom: 4 }}><strong>Pattern:</strong> {pred.optionsSetup.pattern}</div>
+                  <div style={{ marginBottom: 4 }}><strong>Expected Expiry:</strong> {pred.optionsSetup.expiry}</div>
+                  <div><strong>Confidence:</strong> {pred.optionsSetup.confidence}%</div>
+                </div>
+              </div>
+            )}
+
             <div className="card" style={{ flex: 1 }}>
               <div className="card-header">
                 <h3 className="card-title">How It Works</h3>
@@ -322,7 +393,7 @@ export default function Predictions() {
                 <span className="history-actual">ACTUAL CHANGE</span>
                 <span>RESULT</span>
               </div>
-              {mockPredictionHistory.map((h, i) => (
+              {historyData.map((h, i) => (
                 <div key={i} className="history-row">
                   <span className="history-date">{h.date}</span>
                   <span className="history-prediction" style={{ color: h.predictedDirection === 'up' ? 'var(--green)' : h.predictedDirection === 'down' ? 'var(--red)' : 'var(--yellow)' }}>

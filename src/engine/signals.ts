@@ -263,3 +263,24 @@ export async function generateLiveSignals(): Promise<TradingSignal[]> {
 
   return signals;
 }
+
+/**
+ * Generate a live trading signal for a specific dynamic symbol on demand
+ */
+export async function generateSignalForSymbol(symbol: string): Promise<TradingSignal | null> {
+  const isIndian = symbol.toUpperCase().includes('.NS') || symbol.toUpperCase().includes('.BO');
+  const market: 'IN' | 'US' = isIndian ? 'IN' : 'US';
+  const displaySymbol = symbol.split('.')[0].toUpperCase();
+  
+  const data = await fetchStockData(symbol);
+  if (!data || data.closes.length < 20) return null;
+  
+  const config: StockConfig = {
+    symbol: displaySymbol,
+    yahoo: symbol,
+    name: displaySymbol + (isIndian ? ' (India)' : ' (US/Global)'),
+    market
+  };
+  
+  return generateSignalForStock(config, data);
+}

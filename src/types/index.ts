@@ -77,6 +77,18 @@ export interface PredictionResult {
   factors: PredictionFactor[];
   predictedRange: { low: number; high: number };
   previousClose: number;
+  optionsSetup?: OptionsSetup;
+}
+
+export interface OptionsSetup {
+  type: 'CE' | 'PE';
+  strikePrice: number;
+  entryPremium: string;
+  targetPrice: number;
+  stopLoss: number;
+  pattern: string;
+  confidence: number;
+  expiry: string;
 }
 
 export interface PredictionFactor {
