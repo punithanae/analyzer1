@@ -73,6 +73,25 @@ interface PriceResult {
   source: 'yahoo' | 'alphavantage' | 'twelvedata';
 }
 
+export interface DetailedStockProfile {
+  symbol: string;
+  name: string;
+  longBusinessSummary: string;
+  sector: string;
+  industry: string;
+  website: string;
+  fullTimeEmployees: number;
+  city: string;
+  country: string;
+  officers: { name: string; title: string }[];
+  trailingPE: number;
+  forwardPE: number;
+  marketCap: number;
+  dividendYield: number;
+  fiftyTwoWeekHigh: number;
+  fiftyTwoWeekLow: number;
+}
+
 // ==================== Price Cache ====================
 // Prevents excess API calls during fast refresh intervals
 const priceCache = new Map<string, { data: PriceResult; expiry: number }>();
@@ -309,4 +328,92 @@ export async function fetchTickerData(): Promise<{ symbol: string; price: string
     })
   );
   return results;
+}
+
+/** Fetch detailed stock company profiles from Yahoo Finance quoteSummary */
+export async function fetchDetailedStockProfile(symbol: string): Promise<DetailedStockProfile | null> {
+  try {
+    // We add .NS for Indian stocks if they don't have a suffix and belong to India (for dynamic searching)
+    // Yahoo expects suffixes. 
+    
+    const url = `/api/yahoo/v10/finance/quoteSummary/${symbol}?modules=assetProfile,summaryProfile,summaryDetail,price`;
+    const response = await fetch(url);
+    
+    let profile: any = {};
+    let summary: any = {};
+    let priceInfo: any = {};
+    let nameToUse = symbol.replace('.NS', '').replace('.BO', '');
+    let isFallback = false;
+
+    if (response.ok) {
+        const data = await response.json();
+        const result = data?.quoteSummary?.result?.[0];
+        if (result) {
+            profile = result.assetProfile || result.summaryProfile || {};
+            summary = result.summaryDetail || {};
+            priceInfo = result.price || {};
+            nameToUse = priceInfo.shortName || priceInfo.longName || nameToUse;
+        } else {
+            isFallback = true;
+        }
+    } else {
+        isFallback = true;
+    }
+
+    let description = profile.longBusinessSummary;
+
+    // Fallback to Wikipedia if Yahoo blocked us (401 Unauthorized / Invalid Crumb) or data is missing
+    if (isFallback || !description) {
+        try {
+            // Remove suffixes for better search
+            const cleanQuery = symbol.replace('.NS', '').replace('.BO', '').replace('-USD', '');
+            const searchRes = await fetch(`https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(cleanQuery + " company")}&utf8=&format=json&origin=*`);
+            if (searchRes.ok) {
+                const searchData = await searchRes.json();
+                const title = searchData?.query?.search?.[0]?.title;
+                if (title) {
+                    const wikiRes = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}?origin=*`);
+                    if (wikiRes.ok) {
+                        const wikiData = await wikiRes.json();
+                        description = wikiData.extract || 'No detailed background available from Wikipedia.';
+                        nameToUse = wikiData.title || nameToUse;
+                    }
+                }
+            }
+        } catch (e) {
+            console.warn('Wikipedia fallback failed', e);
+        }
+    }
+
+    return {
+      symbol: symbol,
+      name: nameToUse,
+      longBusinessSummary: description || 'Company data is currently limited due to API restrictions (Yahoo Finance 401).',
+      sector: profile.sector || 'Unknown (API Restricted)',
+      industry: profile.industry || 'Unknown (API Restricted)',
+      website: profile.website || '',
+      fullTimeEmployees: profile.fullTimeEmployees || 0,
+      city: profile.city || 'Unknown',
+      country: profile.country || '',
+      officers: (profile.companyOfficers || []).map((o: any) => ({ name: o.name, title: o.title })),
+      trailingPE: summary.trailingPE?.raw || 0,
+      forwardPE: summary.forwardPE?.raw || 0,
+      marketCap: summary.marketCap?.raw || 0,
+      dividendYield: summary.dividendYield?.raw || 0,
+      fiftyTwoWeekHigh: summary.fiftyTwoWeekHigh?.raw || 0,
+      fiftyTwoWeekLow: summary.fiftyTwoWeekLow?.raw || 0,
+    };
+
+  } catch (error) {
+    console.error('Failed to fetch detailed stock profile:', error);
+    // Return a graceful fallback instead of null so the UI doesn't disappear completely
+    return {
+      symbol: symbol,
+      name: symbol.replace('.NS', ''),
+      longBusinessSummary: 'Live company profiling is currently unavailable due to data provider rate limits.',
+      sector: 'Unavailable', industry: 'Unavailable', website: '', fullTimeEmployees: 0,
+      city: '', country: '', officers: [], trailingPE: 0, forwardPE: 0, marketCap: 0,
+      dividendYield: 0, fiftyTwoWeekHigh: 0, fiftyTwoWeekLow: 0
+    };
+  }
 }

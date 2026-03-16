@@ -2,7 +2,7 @@ import { BrowserRouter as Router, Routes, Route, NavLink } from 'react-router-do
 import { lazy, Suspense } from 'react';
 import {
   LayoutDashboard, Newspaper, Zap, Search, BarChart3, Brain,
-  Bell
+  Bell, Bitcoin
 } from 'lucide-react';
 import Dashboard from './pages/Dashboard';
 import { useEffect, useState } from 'react';
@@ -14,6 +14,8 @@ const Signals = lazy(() => import('./pages/Signals'));
 const Screener = lazy(() => import('./pages/Screener'));
 const Analysis = lazy(() => import('./pages/Analysis'));
 const Predictions = lazy(() => import('./pages/Predictions'));
+const Crypto = lazy(() => import('./pages/Crypto'));
+import SearchBar from './components/SearchBar';
 // Lazy load pages
 
 function PageLoader() {
@@ -57,6 +59,10 @@ export default function App() {
               <LayoutDashboard size={20} />
               <span>Dashboard</span>
             </NavLink>
+            <NavLink to="/crypto" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+              <Bitcoin size={20} />
+              <span>Crypto Trading</span>
+            </NavLink>
 
             <div className="nav-section-label">Analysis</div>
             <NavLink to="/news" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
@@ -99,11 +105,14 @@ export default function App() {
           </div>
         </aside>
 
-        {/* Main Content */}
         <main className="main-content">
+          <header style={{ display: 'flex', justifyContent: 'flex-end', paddingBottom: '1rem', borderBottom: '1px solid var(--border-subtle)', marginBottom: '1rem' }}>
+             <SearchBar />
+          </header>
           <Suspense fallback={<PageLoader />}>
             <Routes>
               <Route path="/" element={<Dashboard />} />
+              <Route path="/crypto" element={<Crypto />} />
               <Route path="/news" element={<News />} />
               <Route path="/signals" element={<Signals />} />
               <Route path="/screener" element={<Screener />} />

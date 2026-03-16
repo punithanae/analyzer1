@@ -1,8 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { BarChart3, Wifi, WifiOff, Loader, Search } from 'lucide-react';
+import { BarChart3, Wifi, WifiOff, Loader, Search, Building2, Globe, Users } from 'lucide-react';
 import { createChart, ColorType, CandlestickSeries, HistogramSeries } from 'lightweight-charts';
 import type { CandlestickData, HistogramData, Time } from 'lightweight-charts';
+import { fetchDetailedStockProfile, DetailedStockProfile } from '../services/liveData';
+import { fetchAssetNews } from '../services/liveNews';
+import type { NewsArticle } from '../types';
 
 interface StockOption {
   symbol: string;
@@ -139,13 +142,33 @@ function computeIndicators(closes: number[], volumes: number[], meta: any): Indi
 export default function Analysis() {
   const [searchParams] = useSearchParams();
   const stockParam = searchParams.get('stock');
-  const initialStock = (stockParam ? STOCK_LIST.find(s => s.symbol === stockParam) : null) || STOCK_LIST[0];
+  const [stockParamStock, setStockParamStock] = useState<StockOption | null>(null);
 
+  useEffect(() => {
+    if (stockParam) {
+      // Dynamic stock from search bar
+      const existing = STOCK_LIST.find(s => s.symbol === stockParam);
+      if (existing) {
+        setStockParamStock(existing);
+      } else {
+        setStockParamStock({ symbol: stockParam, yahoo: stockParam, name: stockParam, market: stockParam.includes('.NS') || stockParam.includes('.BO') ? 'IN' : 'US' });
+      }
+    }
+  }, [stockParam]);
+
+  const initialStock = stockParamStock || STOCK_LIST[0];
   const [selectedStock, setSelectedStock] = useState<StockOption>(initialStock);
+
+  useEffect(() => {
+    if (stockParamStock) setSelectedStock(stockParamStock);
+  }, [stockParamStock]);
+
   const [timeframe, setTimeframe] = useState(TIMEFRAMES[3]); // default 3M
   const [loading, setLoading] = useState(true);
   const [isLive, setIsLive] = useState(false);
   const [indicators, setIndicators] = useState<Indicators | null>(null);
+  const [profile, setProfile] = useState<DetailedStockProfile | null>(null);
+  const [news, setNews] = useState<NewsArticle[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [showDropdown, setShowDropdown] = useState(false);
   const chartContainerRef = useRef<HTMLDivElement>(null);
@@ -161,6 +184,15 @@ export default function Analysis() {
     setLoading(true);
 
     try {
+      // Fetch Profile independently
+      fetchDetailedStockProfile(selectedStock.yahoo).then(res => {
+         setProfile(res);
+         // If we don't know the official name (e.g., dynamic search), update it from the profile
+         if (res && res.name && selectedStock.name === selectedStock.symbol) {
+             setSelectedStock(prev => ({ ...prev, name: res.name }));
+         }
+      });
+
       const url = `/api/yahoo/v8/finance/chart/${selectedStock.yahoo}?range=${timeframe.range}&interval=${timeframe.interval}`;
       const response = await fetch(url);
       if (!response.ok) throw new Error(`API returned ${response.status}`);
@@ -286,13 +318,28 @@ export default function Analysis() {
 
   useEffect(() => {
     loadChartData();
+
+    const loadNews = async () => {
+      try {
+        const query = selectedStock.market === 'IN' ? `${selectedStock.name} india stock` : `${selectedStock.name} stock`;
+        const assetNews = await fetchAssetNews(query);
+        setNews(assetNews);
+      } catch (e) {
+        console.warn('News fetch failed', e);
+      }
+    };
+
+    loadNews();
+    const newsInterval = setInterval(loadNews, 120000); // 2 minutes
+
     return () => {
+      clearInterval(newsInterval);
       if (chartRef.current) {
         chartRef.current.remove();
         chartRef.current = null;
       }
     };
-  }, [loadChartData]);
+  }, [loadChartData, selectedStock]);
 
   const getVerdict = () => {
     if (!indicators) return { label: 'Loading...', color: 'var(--text-muted)', signals: 0, total: 0 };
@@ -417,17 +464,22 @@ export default function Analysis() {
           )}
         </div>
 
-        {/* Chart */}
-        <div className="card" style={{ position: 'relative', padding: 'var(--space-sm)' }}>
-          {loading && (
-            <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(10,14,23,0.7)', zIndex: 10, borderRadius: 'var(--radius-lg)' }}>
-              <div style={{ textAlign: 'center' }}>
-                <div className="spinner" style={{ width: 36, height: 36, borderWidth: 3, margin: '0 auto' }} />
-                <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: 12 }}>Loading {selectedStock.symbol} chart...</div>
+        {/* Chart (Full Width) */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', marginBottom: '1.5rem', alignItems: 'stretch' }}>
+          
+          {/* Chart */}
+          <div className="card" style={{ position: 'relative', padding: 'var(--space-sm)' }}>
+            {loading && (
+              <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(10,14,23,0.7)', zIndex: 10, borderRadius: 'var(--radius-lg)' }}>
+                <div style={{ textAlign: 'center' }}>
+                  <div className="spinner" style={{ width: 36, height: 36, borderWidth: 3, margin: '0 auto' }} />
+                  <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: 12 }}>Loading {selectedStock.symbol} chart...</div>
+                </div>
               </div>
-            </div>
-          )}
-          <div ref={chartContainerRef} style={{ width: '100%', minHeight: 420 }} />
+            )}
+            <div ref={chartContainerRef} style={{ width: '100%', minHeight: 480 }} />
+          </div>
+
         </div>
 
         {/* Technical Indicators Grid */}
@@ -510,6 +562,108 @@ export default function Analysis() {
             </div>
           </div>
         )}
+
+        {/* Deep Company Profile & News (Moved to the very bottom as requested) */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1.5rem', alignItems: 'stretch', marginTop: 'var(--space-xl)' }} className="slide-up">
+          
+          {profile && (
+            <div className="card" style={{ flex: '1 1 65%', minWidth: '300px', display: 'flex', flexDirection: 'column' }}>
+              <div className="card-header" style={{ borderBottom: '1px solid var(--border-subtle)', paddingBottom: '12px', marginBottom: '12px' }}>
+                <h3 className="card-title">
+                  <Building2 size={16} style={{ marginRight: 8, color: 'var(--accent-cyan)' }} />
+                  Deep Analysis: {profile.name}
+                </h3>
+              </div>
+              
+              <div className="grid-2" style={{ gap: '2rem', flex: 1 }}>
+                <div>
+                  <h4 style={{ fontSize: '1rem', marginBottom: '0.5rem', color: 'var(--text-primary)' }}>Business Overview</h4>
+                  <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                    {profile.longBusinessSummary}
+                  </p>
+                  <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem', flexWrap: 'wrap' }}>
+                    {profile.website && (
+                      <a href={profile.website} target="_blank" rel="noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--accent-blue)', fontSize: '0.85rem', textDecoration: 'none' }}>
+                        <Globe size={14} /> Website
+                      </a>
+                    )}
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                      <Users size={14} /> {profile.fullTimeEmployees.toLocaleString()} Employees
+                    </span>
+                  </div>
+                </div>
+
+                <div>
+                  <h4 style={{ fontSize: '1rem', marginBottom: '0.5rem', color: 'var(--text-primary)' }}>Fundamentals & Details</h4>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                    <div style={{ padding: '12px', background: 'var(--bg-tertiary)', borderRadius: '8px' }}>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Sector</div>
+                      <div style={{ fontWeight: 600 }}>{profile.sector}</div>
+                    </div>
+                    <div style={{ padding: '12px', background: 'var(--bg-tertiary)', borderRadius: '8px' }}>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Industry</div>
+                      <div style={{ fontWeight: 600 }}>{profile.industry}</div>
+                    </div>
+                    <div style={{ padding: '12px', background: 'var(--bg-tertiary)', borderRadius: '8px' }}>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Location</div>
+                      <div style={{ fontWeight: 600 }}>{profile.city}, {profile.country}</div>
+                    </div>
+                    <div style={{ padding: '12px', background: 'var(--bg-tertiary)', borderRadius: '8px' }}>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Market Cap</div>
+                      <div style={{ fontWeight: 600 }}>{formatLargeNum(profile.marketCap)}</div>
+                    </div>
+                  </div>
+
+                  {profile.officers && profile.officers.length > 0 && (
+                    <div style={{ marginTop: '1rem' }}>
+                      <h4 style={{ fontSize: '0.9rem', marginBottom: '0.5rem', color: 'var(--text-primary)' }}>Key Executives</h4>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        {profile.officers.slice(0, 3).map((o, i) => (
+                          <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', padding: '6px 8px', background: 'var(--bg-tertiary)', borderRadius: '4px' }}>
+                            <span style={{ fontWeight: 600 }}>{o.name}</span>
+                            <span style={{ color: 'var(--text-muted)' }}>{o.title}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Related News Widget */}
+          <div className="card" style={{ flex: '1 1 30%', minWidth: '300px' }}>
+            <div className="card-header">
+              <h3 className="card-title">
+                <Globe size={16} style={{ marginRight: 8, color: 'var(--orange)' }} />
+                Related News
+              </h3>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-md)' }}>
+              {news.length === 0 ? (
+                 <div style={{ textAlign: 'center', padding: '20px', color: 'var(--text-muted)' }}>
+                    Loading latest stock news...
+                 </div>
+              ) : news.map(n => (
+                <div key={n.id} className="news-card" style={{ padding: 'var(--space-md)' }}>
+                  <div className="news-card-header">
+                    <span className="news-card-title" style={{ fontSize: '0.85rem' }}>
+                      <a href={n.url} target="_blank" rel="noreferrer" style={{ color: 'inherit', textDecoration: 'none' }}>{n.title}</a>
+                    </span>
+                    <span className={`badge badge-${n.sentiment}`}>{n.sentiment}</span>
+                  </div>
+                  <div className="news-card-meta">
+                    <span>{n.source}</span>
+                    <span>•</span>
+                    <span>{new Date(n.publishedAt).toLocaleDateString()}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
       </div>
     </div>
   );

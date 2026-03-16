@@ -310,6 +310,41 @@ function calcInstitutionalFactor(closes: number[], volumes: number[]): { signal:
   };
 }
 
+function calcBollingerFactor(closes: number[]): { signal: number; description: string } {
+  if (closes.length < 20) return { signal: 0, description: 'Insufficient data' };
+  
+  const period = 20;
+  const recentCloses = closes.slice(-period);
+  const sma = recentCloses.reduce((a,b) => a+b, 0) / period;
+  
+  const squaredDiffs = recentCloses.map(c => Math.pow(c - sma, 2));
+  const variance = squaredDiffs.reduce((a,b) => a+b, 0) / period;
+  const stdDev = Math.sqrt(variance);
+  
+  const upperBand = sma + (stdDev * 2);
+  const lowerBand = sma - (stdDev * 2);
+  const current = closes[closes.length - 1];
+  
+  let signal = 0;
+  let desc = `Price near 20-SMA (${sma.toFixed(0)})`;
+  
+  if (current > upperBand) {
+    signal = -0.6; // Overbought
+    desc = `Price (${current.toFixed(0)}) above Upper Band (${upperBand.toFixed(0)}) — Overbought risk`;
+  } else if (current < lowerBand) {
+    signal = 0.6; // Oversold
+    desc = `Price (${current.toFixed(0)}) below Lower Band (${lowerBand.toFixed(0)}) — Oversold bounce expected`;
+  } else if (current > sma) {
+    signal = 0.3;
+    desc = `Price above 20-SMA (${sma.toFixed(0)}) — Bullish trend`;
+  } else {
+    signal = -0.3;
+    desc = `Price below 20-SMA (${sma.toFixed(0)}) — Bearish trend`;
+  }
+  
+  return { signal, description: desc };
+}
+
 // ==================== Adaptive Machine Learning Model ====================
 
 interface HistoricalPrediction {
@@ -320,13 +355,14 @@ interface HistoricalPrediction {
 
 function getAdaptiveWeights(): Record<string, number> {
   const defaultWeights: Record<string, number> = {
-    'Trend (EMA Crossover)': 20,
-    'Momentum (RSI + MACD)': 20,
+    'Trend (EMA Crossover)': 15,
+    'Momentum (RSI + MACD)': 15,
     'Volume Profile': 10,
     'Market Sentiment': 15,
     'Global Cues (US Markets)': 15,
     'Volatility (ATR)': 10,
     'Institutional Flow (OBV)': 10,
+    'Bollinger Bands': 10,
   };
 
   try {
@@ -403,9 +439,9 @@ function savePredictionForLearning(score: number, factors: PredictionFactor[], t
 
 export async function computeLivePrediction(): Promise<PredictionResult | null> {
   try {
-    // Fetch Nifty 50 historical data (3 months daily)
-    const niftyData = await fetchChartData('%5ENSEI', '3mo', '1d');
-    if (!niftyData || niftyData.data.closes.length < 30) {
+    // Fetch Nifty 50 historical data (1 year daily)
+    const niftyData = await fetchChartData('%5ENSEI', '1y', '1d');
+    if (!niftyData || niftyData.data.closes.length < 100) {
       console.error('Insufficient Nifty 50 data for prediction');
       return null;
     }
@@ -421,6 +457,7 @@ export async function computeLivePrediction(): Promise<PredictionResult | null> 
     const globalCues = await calcGlobalCuesFactor();
     const volatility = calcVolatilityFactor(closes, highs, lows);
     const institutional = calcInstitutionalFactor(closes, volumes);
+    const bollinger = calcBollingerFactor(closes);
     
     // Adaptive Machine Learning: Adjust weights based on past performance
     evaluateAndLearn(meta.regularMarketPrice, meta.previousClose);
@@ -435,6 +472,7 @@ export async function computeLivePrediction(): Promise<PredictionResult | null> 
       { name: 'Global Cues (US Markets)', weight: weights['Global Cues (US Markets)'], signal: globalCues.signal, description: globalCues.description, icon: 'Globe' },
       { name: 'Volatility (ATR)', weight: weights['Volatility (ATR)'], signal: volatility.signal, description: volatility.description, icon: 'Activity' },
       { name: 'Institutional Flow (OBV)', weight: weights['Institutional Flow (OBV)'], signal: institutional.signal, description: institutional.description, icon: 'Users' },
+      { name: 'Bollinger Bands', weight: weights['Bollinger Bands'], signal: bollinger.signal, description: bollinger.description, icon: 'Pulse' },
     ];
     
     const totalScore = factors.reduce((sum, f) => sum + (f.weight / 100) * f.signal, 0);

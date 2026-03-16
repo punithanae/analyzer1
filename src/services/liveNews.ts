@@ -160,3 +160,13 @@ export async function fetchLiveNews(): Promise<NewsArticle[]> {
 
   return topNews;
 }
+
+/** Fetch live news for a specific asset (stock or crypto) */
+export async function fetchAssetNews(query: string): Promise<NewsArticle[]> {
+  const url = `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=en-US&gl=US&ceid=US:en`;
+  const news = await fetchRssFeed(url, 'Google News');
+  
+  return news.sort((a, b) => 
+    new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime()
+  ).slice(0, 5); // Return top 5 most recent
+}

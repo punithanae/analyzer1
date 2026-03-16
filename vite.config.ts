@@ -12,6 +12,10 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api\/yahoo/, ''),
         secure: true,
+        headers: {
+          'Origin': 'https://finance.yahoo.com',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        }
       },
       // Proxy for Yahoo Finance v8 quote
       '/api/yahoo-quote': {
