@@ -8,6 +8,8 @@ import { useLocation } from 'react-router-dom';
 import { createChart, ColorType, CandlestickSeries, HistogramSeries } from 'lightweight-charts';
 import type { CandlestickData, HistogramData, Time } from 'lightweight-charts';
 import { mockNews } from '../data/mockData';
+import OrderModal from '../components/OrderModal';
+import { Zap } from 'lucide-react';
 
 export default function Crypto() {
   const [cryptos, setCryptos] = useState<CryptoQuote[]>([]);
@@ -20,6 +22,8 @@ export default function Crypto() {
   const [selectedCrypto, setSelectedCrypto] = useState(initialCoin);
   const [isLoading, setIsLoading] = useState(true);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [showOrderModal, setShowOrderModal] = useState(false);
+  const [orderAction, setOrderAction] = useState<'BUY' | 'SELL'>('BUY');
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<ReturnType<typeof createChart> | null>(null);
 
@@ -254,6 +258,29 @@ export default function Crypto() {
                   <div style={{ marginTop: 8, fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
                     Predicted Range (Next 24hr): <strong>${prediction.predictedRange.low}</strong> - <strong>${prediction.predictedRange.high}</strong>
                   </div>
+
+                  <div style={{ display: 'flex', gap: 'var(--space-sm)', marginTop: 'var(--space-md)' }}>
+                    <button
+                      className="btn btn-success"
+                      style={{ flex: 1, fontWeight: 800, fontSize: '0.85rem', gap: 6 }}
+                      onClick={() => {
+                        setOrderAction('BUY');
+                        setShowOrderModal(true);
+                      }}
+                    >
+                      <Zap size={16} /> BUY / LONG
+                    </button>
+                    <button
+                      className="btn btn-danger"
+                      style={{ flex: 1, fontWeight: 800, fontSize: '0.85rem', gap: 6 }}
+                      onClick={() => {
+                        setOrderAction('SELL');
+                        setShowOrderModal(true);
+                      }}
+                    >
+                      <Zap size={16} /> SHORT / SELL
+                    </button>
+                  </div>
                 </div>
 
                 <div>
@@ -383,6 +410,20 @@ export default function Crypto() {
             </div>
           </div>
         </div>
+
+        {/* Order Execution Modal */}
+        {showOrderModal && prediction && (
+          <OrderModal
+            symbol={selectedCrypto.replace('USDT', '')}
+            name={`${selectedCrypto.replace('USDT', '')} / USDT`}
+            currentPrice={prediction.previousClose}
+            targetPrice={prediction.predictedRange.high}
+            stopLoss={prediction.predictedRange.low}
+            defaultAction={orderAction}
+            market="US"
+            onClose={() => setShowOrderModal(false)}
+          />
+        )}
 
       </div>
     </div>
