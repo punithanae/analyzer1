@@ -27,7 +27,6 @@ function PageLoader() {
 }
 
 export default function App() {
-  const [newsCount] = useState(3);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   useEffect(() => {
@@ -75,7 +74,6 @@ export default function App() {
             <NavLink to="/news" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`} onClick={closeMenu}>
               <Newspaper size={20} />
               <span>News Feed</span>
-              {newsCount > 0 && <span className="nav-badge">{newsCount}</span>}
             </NavLink>
             <NavLink to="/signals" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`} onClick={closeMenu}>
               <Zap size={20} />

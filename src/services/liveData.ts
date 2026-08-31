@@ -59,6 +59,41 @@ const TICKER_SYMBOLS = [
   { yahoo: 'USDINR%3DX', label: 'USD/INR' },
   { yahoo: 'BTC-USD',    label: 'BTC' },
 ];
+
+const FALLBACK_PROFILES: Record<string, Partial<DetailedStockProfile>> = {
+  'RELIANCE': { sector: 'Energy', industry: 'Oil & Gas Refining & Marketing', city: 'Mumbai', country: 'India', fullTimeEmployees: 389414 },
+  'TCS': { sector: 'Technology', industry: 'IT Services', city: 'Mumbai', country: 'India', fullTimeEmployees: 614795 },
+  'HDFCBANK': { sector: 'Financial Services', industry: 'Banks - Regional', city: 'Mumbai', country: 'India', fullTimeEmployees: 177000 },
+  'INFY': { sector: 'Technology', industry: 'IT Services', city: 'Bengaluru', country: 'India', fullTimeEmployees: 317240 },
+  'ICICIBANK': { sector: 'Financial Services', industry: 'Banks - Regional', city: 'Mumbai', country: 'India', fullTimeEmployees: 130000 },
+  'SBIN': { sector: 'Financial Services', industry: 'Banks - Regional', city: 'Mumbai', country: 'India', fullTimeEmployees: 235858 },
+  'HINDUNILVR': { sector: 'Consumer Defensive', industry: 'Household Products', city: 'Mumbai', country: 'India', fullTimeEmployees: 16000 },
+  'BAJFINANCE': { sector: 'Financial Services', industry: 'Credit Services', city: 'Pune', country: 'India', fullTimeEmployees: 35000 },
+  'WIPRO': { sector: 'Technology', industry: 'IT Services', city: 'Bengaluru', country: 'India', fullTimeEmployees: 240000 },
+  'TATAMOTORS': { sector: 'Consumer Cyclical', industry: 'Auto Manufacturers', city: 'Mumbai', country: 'India', fullTimeEmployees: 82797 },
+  'IOC': { sector: 'Energy', industry: 'Oil & Gas Refining & Marketing', city: 'New Delhi', country: 'India', fullTimeEmployees: 31000 },
+  'BPCL': { sector: 'Energy', industry: 'Oil & Gas Refining & Marketing', city: 'Mumbai', country: 'India', fullTimeEmployees: 9000 },
+  'HPCL': { sector: 'Energy', industry: 'Oil & Gas Refining & Marketing', city: 'Mumbai', country: 'India', fullTimeEmployees: 9200 },
+  'ONGC': { sector: 'Energy', industry: 'Oil & Gas Exploration & Production', city: 'Dehradun', country: 'India', fullTimeEmployees: 26000 },
+  'TATASTEEL': { sector: 'Basic Materials', industry: 'Steel', city: 'Mumbai', country: 'India', fullTimeEmployees: 77000 },
+  'NTPC': { sector: 'Utilities', industry: 'Utilities - Independent Power Producers', city: 'New Delhi', country: 'India', fullTimeEmployees: 18000 },
+  'POWERGRID': { sector: 'Utilities', industry: 'Utilities - Regulated Electric', city: 'Gurugram', country: 'India', fullTimeEmployees: 9000 },
+  'COALINDIA': { sector: 'Energy', industry: 'Thermal Coal', city: 'Kolkata', country: 'India', fullTimeEmployees: 239000 },
+  'AXISBANK': { sector: 'Financial Services', industry: 'Banks - Regional', city: 'Mumbai', country: 'India', fullTimeEmployees: 89000 },
+  'KOTAKBANK': { sector: 'Financial Services', industry: 'Banks - Regional', city: 'Mumbai', country: 'India', fullTimeEmployees: 73000 },
+  'MARUTI': { sector: 'Consumer Cyclical', industry: 'Auto Manufacturers', city: 'New Delhi', country: 'India', fullTimeEmployees: 17000 },
+  'SUNPHARMA': { sector: 'Healthcare', industry: 'Drug Manufacturers', city: 'Mumbai', country: 'India', fullTimeEmployees: 38000 },
+  'TITAN': { sector: 'Consumer Cyclical', industry: 'Luxury Goods', city: 'Bengaluru', country: 'India', fullTimeEmployees: 8000 },
+  'M&M': { sector: 'Consumer Cyclical', industry: 'Auto Manufacturers', city: 'Mumbai', country: 'India', fullTimeEmployees: 42000 },
+  'AAPL': { sector: 'Technology', industry: 'Consumer Electronics', city: 'Cupertino', country: 'USA', fullTimeEmployees: 161000 },
+  'MSFT': { sector: 'Technology', industry: 'Software', city: 'Redmond', country: 'USA', fullTimeEmployees: 221000 },
+  'GOOGL': { sector: 'Communication Services', industry: 'Internet Content', city: 'Mountain View', country: 'USA', fullTimeEmployees: 182502 },
+  'AMZN': { sector: 'Consumer Cyclical', industry: 'Internet Retail', city: 'Seattle', country: 'USA', fullTimeEmployees: 1525000 },
+  'NVDA': { sector: 'Technology', industry: 'Semiconductors', city: 'Santa Clara', country: 'USA', fullTimeEmployees: 29600 },
+  'TSLA': { sector: 'Consumer Cyclical', industry: 'Auto Manufacturers', city: 'Austin', country: 'USA', fullTimeEmployees: 140473 },
+  'META': { sector: 'Communication Services', industry: 'Internet Content', city: 'Menlo Park', country: 'USA', fullTimeEmployees: 67317 },
+};
+
 // ==================== API Types ====================
 
 interface PriceResult {
@@ -362,35 +397,89 @@ export async function fetchDetailedStockProfile(symbol: string): Promise<Detaile
 
     let description = profile.longBusinessSummary;
 
-    // Fallback to Wikipedia if Yahoo blocked us (401 Unauthorized / Invalid Crumb) or data is missing
+    // Fallback to Alpha Vantage OVERVIEW first, then Wikipedia if Yahoo blocked us (401 Unauthorized / Invalid Crumb)
     if (isFallback || !description) {
+        // Try AlphaVantage OVERVIEW
         try {
-            // Remove suffixes for better search
-            const cleanQuery = symbol.replace('.NS', '').replace('.BO', '').replace('-USD', '');
-            const searchRes = await fetch(`https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(cleanQuery + " company")}&utf8=&format=json&origin=*`);
-            if (searchRes.ok) {
-                const searchData = await searchRes.json();
-                const title = searchData?.query?.search?.[0]?.title;
-                if (title) {
-                    const wikiRes = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}?origin=*`);
-                    if (wikiRes.ok) {
-                        const wikiData = await wikiRes.json();
-                        description = wikiData.extract || 'No detailed background available from Wikipedia.';
-                        nameToUse = wikiData.title || nameToUse;
+            // Adjust symbols for Alpha Vantage (e.g. .NS -> .BSE)
+            const avSymbol = symbol.endsWith('.NS') ? symbol.replace('.NS', '.BSE') : symbol;
+            const config = getApiConfig();
+            if (config.alphaVantageKey) {
+                const avRes = await fetch(`/api/alphavantage/query?function=OVERVIEW&symbol=${avSymbol}&apikey=${config.alphaVantageKey}`);
+                if (avRes.ok) {
+                    const avData = await avRes.json();
+                    if (avData && avData.Symbol && avData.Sector && avData.Sector !== 'None') {
+                        profile.sector = avData.Sector !== 'None' ? avData.Sector : profile.sector;
+                        profile.industry = avData.Industry !== 'None' ? avData.Industry : profile.industry;
+                        profile.fullTimeEmployees = parseInt(avData.FullTimeEmployees) || 0;
+                        profile.country = avData.Country !== 'None' ? avData.Country : profile.country;
+                        profile.city = avData.Address?.split(',')[1]?.trim() || '';
+                        summary.marketCap = { raw: parseInt(avData.MarketCapitalization) || summary.marketCap?.raw };
+                        summary.trailingPE = { raw: parseFloat(avData.PERatio) || summary.trailingPE?.raw };
+                        summary.dividendYield = { raw: parseFloat(avData.DividendYield) || summary.dividendYield?.raw };
+                        summary.fiftyTwoWeekHigh = { raw: parseFloat(avData['52WeekHigh']) || summary.fiftyTwoWeekHigh?.raw };
+                        summary.fiftyTwoWeekLow = { raw: parseFloat(avData['52WeekLow']) || summary.fiftyTwoWeekLow?.raw };
+                        
+                        if (avData.Description && avData.Description !== 'None') {
+                            description = avData.Description;
+                        }
+                        if (avData.Name && avData.Name !== 'None') {
+                            nameToUse = avData.Name;
+                        }
                     }
                 }
             }
         } catch (e) {
-            console.warn('Wikipedia fallback failed', e);
+            console.warn('AlphaVantage fallback failed', e);
+        }
+
+        // If we STILL don't have a description, fallback to Wikipedia for the text summary
+        if (!description || description === 'None') {
+            try {
+                // Remove suffixes for better search
+                const cleanQuery = symbol.replace('.NS', '').replace('.BO', '').replace('-USD', '');
+                const searchRes = await fetch(`https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(cleanQuery + " company")}&utf8=&format=json&origin=*`);
+                if (searchRes.ok) {
+                    const searchData = await searchRes.json();
+                    const title = searchData?.query?.search?.[0]?.title;
+                    if (title) {
+                        const wikiRes = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}?origin=*`);
+                        if (wikiRes.ok) {
+                            const wikiData = await wikiRes.json();
+                            description = wikiData.extract || 'No detailed background available from Wikipedia.';
+                            if (!nameToUse || nameToUse === symbol) {
+                                nameToUse = wikiData.title || nameToUse;
+                            }
+                        }
+                    }
+                }
+            } catch (e) {
+                console.warn('Wikipedia fallback failed', e);
+            }
         }
     }
+
+    // Merge explicitly known static fallback data if the API didn't give us anything good
+    const baseSym = symbol.replace('.NS', '').replace('.BO', '');
+    const staticFallback = FALLBACK_PROFILES[baseSym] || {};
+    
+    // Check if we still have missing values, and push static fallback values over them
+    if (!profile.sector || profile.sector === 'Unknown (API Restricted)') profile.sector = staticFallback.sector;
+    if (!profile.industry || profile.industry === 'Unknown (API Restricted)') profile.industry = staticFallback.industry;
+    if (!profile.city || profile.city === 'Unknown') profile.city = staticFallback.city;
+    if (!profile.country) profile.country = staticFallback.country;
+    if (!profile.fullTimeEmployees) profile.fullTimeEmployees = staticFallback.fullTimeEmployees;
+
+    const finalDescription = description || 'Company data is currently limited due to API restrictions (Yahoo Finance 401/Alpha Vantage Rate Limits).';
+    const finalSector = profile.sector && profile.sector !== 'Unknown (API Restricted)' ? profile.sector : 'Unknown';
+    const finalIndustry = profile.industry && profile.industry !== 'Unknown (API Restricted)' ? profile.industry : 'Unknown';
 
     return {
       symbol: symbol,
       name: nameToUse,
-      longBusinessSummary: description || 'Company data is currently limited due to API restrictions (Yahoo Finance 401).',
-      sector: profile.sector || 'Unknown (API Restricted)',
-      industry: profile.industry || 'Unknown (API Restricted)',
+      longBusinessSummary: finalDescription,
+      sector: finalSector,
+      industry: finalIndustry,
       website: profile.website || '',
       fullTimeEmployees: profile.fullTimeEmployees || 0,
       city: profile.city || 'Unknown',
@@ -407,12 +496,19 @@ export async function fetchDetailedStockProfile(symbol: string): Promise<Detaile
   } catch (error) {
     console.error('Failed to fetch detailed stock profile:', error);
     // Return a graceful fallback instead of null so the UI doesn't disappear completely
+    const baseSym = symbol.replace('.NS', '').replace('.BO', '');
+    const staticFallback = FALLBACK_PROFILES[baseSym] || {};
     return {
       symbol: symbol,
       name: symbol.replace('.NS', ''),
       longBusinessSummary: 'Live company profiling is currently unavailable due to data provider rate limits.',
-      sector: 'Unavailable', industry: 'Unavailable', website: '', fullTimeEmployees: 0,
-      city: '', country: '', officers: [], trailingPE: 0, forwardPE: 0, marketCap: 0,
+      sector: staticFallback.sector || 'Unavailable', 
+      industry: staticFallback.industry || 'Unavailable', 
+      website: '', 
+      fullTimeEmployees: staticFallback.fullTimeEmployees || 0,
+      city: staticFallback.city || '', 
+      country: staticFallback.country || '', 
+      officers: [], trailingPE: 0, forwardPE: 0, marketCap: 0,
       dividendYield: 0, fiftyTwoWeekHigh: 0, fiftyTwoWeekLow: 0
     };
   }

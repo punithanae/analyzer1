@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { BarChart3, Wifi, WifiOff, Loader, Search, Building2, Globe, Users } from 'lucide-react';
+import { BarChart3, Wifi, WifiOff, Loader, Search, Building2, Globe, Users, Zap } from 'lucide-react';
 import { createChart, ColorType, CandlestickSeries, HistogramSeries } from 'lightweight-charts';
 import type { CandlestickData, HistogramData, Time } from 'lightweight-charts';
 import { fetchDetailedStockProfile, DetailedStockProfile } from '../services/liveData';
 import { fetchAssetNews } from '../services/liveNews';
 import type { NewsArticle } from '../types';
+import OrderModal from '../components/OrderModal';
 
 interface StockOption {
   symbol: string;
@@ -171,6 +172,7 @@ export default function Analysis() {
   const [news, setNews] = useState<NewsArticle[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [showDropdown, setShowDropdown] = useState(false);
+  const [showOrderModal, setShowOrderModal] = useState(false);
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<ReturnType<typeof createChart> | null>(null);
 
@@ -449,7 +451,7 @@ export default function Analysis() {
             ))}
           </div>
 
-          {/* Current price display */}
+          {/* Current price display & Place Order Button */}
           {indicators && (
             <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 'var(--space-md)' }}>
               <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '1.1rem' }}>
@@ -460,6 +462,13 @@ export default function Analysis() {
                 {(indicators.currentPrice - indicators.prevClose).toFixed(2)}
                 {' '}({(((indicators.currentPrice - indicators.prevClose) / indicators.prevClose) * 100).toFixed(2)}%)
               </span>
+              <button
+                className="btn btn-success btn-sm"
+                style={{ fontWeight: 800, padding: '6px 14px', gap: 6 }}
+                onClick={() => setShowOrderModal(true)}
+              >
+                <Zap size={14} /> PLACE ORDER
+              </button>
             </div>
           )}
         </div>
@@ -663,6 +672,20 @@ export default function Analysis() {
             </div>
           </div>
         </div>
+
+        {/* Order Execution Modal */}
+        {showOrderModal && indicators && (
+          <OrderModal
+            symbol={selectedStock.symbol}
+            name={selectedStock.name}
+            currentPrice={indicators.currentPrice}
+            targetPrice={Math.round(indicators.currentPrice * 1.05 * 100) / 100}
+            stopLoss={Math.round(indicators.currentPrice * 0.97 * 100) / 100}
+            defaultAction={indicators.ema9 >= indicators.ema21 ? 'BUY' : 'SELL'}
+            market={selectedStock.market}
+            onClose={() => setShowOrderModal(false)}
+          />
+        )}
 
       </div>
     </div>

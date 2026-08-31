@@ -1,7 +1,10 @@
 import { useState, useEffect } from 'react';
-import { Zap, Wifi, Loader, TrendingUp, TrendingDown, Minus, RefreshCw, Search } from 'lucide-react';
+import { Zap, Wifi, Loader, TrendingUp, TrendingDown, Minus, RefreshCw, Search, ShoppingCart, Bot } from 'lucide-react';
 import { generateLiveSignals, generateSignalForSymbol } from '../engine/signals';
 import type { TradingSignal, SignalAction, SignalType } from '../types';
+import OrderModal from '../components/OrderModal';
+import OrdersList from '../components/OrdersList';
+import { processAutoTrader } from '../services/orderEngine';
 
 export default function Signals() {
   const [signals, setSignals] = useState<TradingSignal[]>([]);
@@ -13,6 +16,7 @@ export default function Signals() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [searching, setSearching] = useState(false);
+  const [orderModalSignal, setOrderModalSignal] = useState<TradingSignal | null>(null);
 
   const fetchSignals = async () => {
     setLoading(true);
@@ -20,6 +24,8 @@ export default function Signals() {
       const result = await generateLiveSignals();
       setSignals(result);
       setLastUpdate(new Date());
+      // Process auto trader bot for high confidence BUY signals
+      processAutoTrader(result);
     } catch (err) {
       console.error('Failed to generate signals:', err);
     } finally {
@@ -120,6 +126,9 @@ export default function Signals() {
       </div>
 
       <div className="page-body">
+        {/* Live Executed Orders & AI Auto-Trader Bot */}
+        <OrdersList livePrices={signals.reduce((acc, s) => ({ ...acc, [s.symbol]: s.entryPrice }), {})} />
+
         {/* Filters and Search */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-md)', marginBottom: 'var(--space-lg)' }}>
           <form className="filter-bar" style={{ marginBottom: 0 }} onSubmit={handleSearch}>
@@ -228,41 +237,46 @@ export default function Signals() {
                 </div>
 
                 {/* Reasoning */}
-                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: 'var(--space-sm)' }}>
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: 'var(--space-md)' }}>
                   {sig.reasoning}
                 </div>
 
-                {/* Factor breakdown (expanded) */}
-                {isExpanded && (
-                  <div style={{ marginTop: 'var(--space-md)', paddingTop: 'var(--space-md)', borderTop: '1px solid var(--border-subtle)' }}>
-                    {sig.factors.map((f, i) => {
-                      const fColor = f.signal === 'bullish' ? 'var(--green)' : f.signal === 'bearish' ? 'var(--red)' : 'var(--yellow)';
-                      return (
-                        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-md)', marginBottom: 8 }}>
-                          <span style={{ fontSize: '0.75rem', fontWeight: 600, minWidth: 80 }}>{f.name}</span>
-                          <div style={{ flex: 1, height: 6, background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-full)', overflow: 'hidden' }}>
-                            <div style={{ width: `${Math.max(10, f.strength)}%`, height: '100%', background: fColor, borderRadius: 'var(--radius-full)', transition: 'width 0.5s ease' }} />
-                          </div>
-                          <span style={{ fontSize: '0.7rem', fontFamily: 'var(--font-mono)', color: fColor, fontWeight: 600, minWidth: 30, textAlign: 'right' }}>
-                            {f.strength}%
-                          </span>
-                        </div>
-                      );
-                    })}
-                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 'var(--space-sm)' }}>
-                      {sig.factors.map(f => f.description).join(' | ')}
-                    </div>
-                  </div>
-                )}
+                {/* Buy / Sell Trade Execution Button */}
+                <div style={{ display: 'flex', gap: 'var(--space-sm)', marginBottom: 'var(--space-sm)' }}>
+                  <button
+                    className={`btn ${sig.action === 'BUY' ? 'btn-success' : sig.action === 'SELL' ? 'btn-danger' : 'btn-primary'}`}
+                    style={{ width: '100%', fontWeight: 800, fontSize: '0.85rem', gap: 6 }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setOrderModalSignal(sig);
+                    }}
+                  >
+                    <Zap size={16} /> ⚡ PLACE {sig.action === 'SELL' ? 'SELL' : 'BUY'} ORDER
+                  </button>
+                </div>
 
                 {/* Generated time */}
-                <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: 'var(--space-sm)' }}>
+                <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: 'var(--space-xs)' }}>
                   Generated: {new Date(sig.generatedAt).toLocaleString()}
                 </div>
               </div>
             );
           })}
         </div>
+
+        {/* Order Execution Modal */}
+        {orderModalSignal && (
+          <OrderModal
+            symbol={orderModalSignal.symbol}
+            name={orderModalSignal.name}
+            currentPrice={orderModalSignal.entryPrice}
+            targetPrice={orderModalSignal.targetPrice}
+            stopLoss={orderModalSignal.stopLoss}
+            defaultAction={orderModalSignal.action === 'SELL' ? 'SELL' : 'BUY'}
+            market={orderModalSignal.market}
+            onClose={() => setOrderModalSignal(null)}
+          />
+        )}
 
         {filtered.length === 0 && !loading && (
           <div className="empty-state">

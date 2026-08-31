@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import { Brain, TrendingUp, TrendingDown, Zap, BarChart3, Newspaper, Globe, Activity, Users, ChevronDown, ChevronUp, CheckCircle, XCircle, Loader, Wifi } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 import { computeLivePrediction } from '../engine/prediction';
-import { mockPredictionHistory } from '../data/mockData';
 import type { PredictionResult } from '../types';
 
 const iconMap: Record<string, React.ReactNode> = {
@@ -16,12 +15,10 @@ const iconMap: Record<string, React.ReactNode> = {
 };
 
 export default function Predictions() {
-  const [showHistory, setShowHistory] = useState(true);
   const [pred, setPred] = useState<PredictionResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
-  const [historyData, setHistoryData] = useState(mockPredictionHistory);
 
   // Fetch live prediction
   useEffect(() => {
@@ -42,43 +39,6 @@ export default function Predictions() {
       } finally {
         setLoading(false);
       }
-      
-      // Load history from local storage and merge with mock data
-      try {
-        const stored = localStorage.getItem('nifty_prediction_history');
-        if (stored) {
-          const parsed = JSON.parse(stored);
-          const historyArray = Array.isArray(parsed) ? parsed : [parsed];
-          if (historyArray.length > 0) {
-            // Map HistoricalPredictions to UI format
-            const liveHists = historyArray.map(h => {
-              const dir = h.predictedScore > 0 ? 'up' : h.predictedScore < 0 ? 'down' : 'neutral';
-              const predStr = h.predictedScore > 0.5 ? 'Strong Bullish' : h.predictedScore > 0.2 ? 'Bullish' : h.predictedScore > -0.2 ? 'Neutral' : h.predictedScore > -0.5 ? 'Bearish' : 'Strong Bearish';
-              // For live data that hasn't closed yet, actual is pending, but we simulate it based on current movement if we have predicted it for a past date
-              const todayStr = new Date().toISOString().split('T')[0];
-              const isPast = h.date < todayStr;
-              return {
-                date: h.date,
-                prediction: predStr,
-                predictedDirection: dir as 'up'|'down'|'neutral',
-                actualDirection: (isPast ? dir : 'Pending') as any,
-                actualChange: isPast ? 0.5 : 0, 
-                correct: isPast
-              };
-            });
-            
-            // Merge with mock
-            const merged = [...liveHists];
-            mockPredictionHistory.forEach(mh => {
-              if (!merged.find(m => m.date === mh.date)) {
-                merged.push(mh);
-              }
-            });
-            
-            setHistoryData(merged.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 10));
-          }
-        }
-      } catch (e) { console.error(e); }
     };
 
     fetchPrediction();
@@ -136,8 +96,6 @@ export default function Predictions() {
     { value: pred.confidence, color: gaugeColor },
     { value: 100 - pred.confidence, color: 'rgba(26, 35, 50, 0.8)' },
   ];
-
-  const accuracy = Math.max(1, historyData.filter((h: any) => h.correct !== false).length) / historyData.length * 100;
 
   return (
     <div className="fade-in">
@@ -257,13 +215,7 @@ export default function Predictions() {
               <div className="card-header">
                 <h3 className="card-title">Model Performance</h3>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-md)' }}>
-                <div style={{ textAlign: 'center', padding: 'var(--space-md)', background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-md)' }}>
-                  <div style={{ fontSize: '2rem', fontWeight: 800, fontFamily: 'var(--font-mono)', color: accuracy >= 70 ? 'var(--green)' : 'var(--yellow)' }}>
-                    {accuracy.toFixed(0)}%
-                  </div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>Accuracy (10-day)</div>
-                </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 'var(--space-md)' }}>
                 <div style={{ textAlign: 'center', padding: 'var(--space-md)', background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-md)' }}>
                   <div style={{ fontSize: '2rem', fontWeight: 800, fontFamily: 'var(--font-mono)', color: 'var(--accent-blue)' }}>
                     7
@@ -373,48 +325,6 @@ export default function Predictions() {
           })}
         </div>
 
-        {/* Prediction History */}
-        <div className="card">
-          <div className="card-header" style={{ cursor: 'pointer' }} onClick={() => setShowHistory(!showHistory)}>
-            <h3 className="card-title">Prediction History (Last 10 Days)</h3>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-md)' }}>
-              <span style={{ fontSize: '0.8rem', color: accuracy >= 70 ? 'var(--green)' : 'var(--yellow)', fontWeight: 600 }}>
-                Accuracy: {accuracy.toFixed(0)}%
-              </span>
-              {showHistory ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-            </div>
-          </div>
-
-          {showHistory && (
-            <div className="prediction-history">
-              <div className="history-row" style={{ fontWeight: 600, color: 'var(--text-tertiary)', fontSize: '0.75rem' }}>
-                <span className="history-date">DATE</span>
-                <span className="history-prediction">PREDICTION</span>
-                <span className="history-actual">ACTUAL CHANGE</span>
-                <span>RESULT</span>
-              </div>
-              {historyData.map((h, i) => (
-                <div key={i} className="history-row">
-                  <span className="history-date">{h.date}</span>
-                  <span className="history-prediction" style={{ color: h.predictedDirection === 'up' ? 'var(--green)' : h.predictedDirection === 'down' ? 'var(--red)' : 'var(--yellow)' }}>
-                    {h.prediction}
-                  </span>
-                  <span className="history-actual">
-                    <span style={{ color: h.actualChange >= 0 ? 'var(--green)' : 'var(--red)' }}>
-                      {h.actualChange >= 0 ? '+' : ''}{h.actualChange.toFixed(2)}%
-                    </span>
-                    <span style={{ marginLeft: 8, fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                      ({h.actualDirection})
-                    </span>
-                  </span>
-                  <span className={`history-result ${h.correct ? 'correct' : 'wrong'}`}>
-                    {h.correct ? <><CheckCircle size={12} /> Correct</> : <><XCircle size={12} /> Wrong</>}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
       </div>
     </div>
   );

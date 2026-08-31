@@ -1,9 +1,11 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { TrendingUp, TrendingDown, ArrowUpRight, ArrowDownRight, Eye, BarChart3, Zap, Bell, Wifi, WifiOff, RefreshCw } from 'lucide-react';
-import { mockIndices, mockStocks, mockSignals, mockNews, tickerData as mockTickerData } from '../data/mockData';
+import { mockIndices, mockStocks, mockSignals, tickerData as mockTickerData } from '../data/mockData';
 import { fetchLiveIndices, fetchLiveStocks, fetchTickerData } from '../services/liveData';
-import type { MarketIndex, StockQuote } from '../types';
+import { fetchLiveNews } from '../services/liveNews';
+import type { MarketIndex, StockQuote, NewsArticle } from '../types';
+import OrdersList from '../components/OrdersList';
 
 const REFRESH_INTERVAL = 2000; // 2 seconds
 
@@ -13,6 +15,7 @@ export default function Dashboard() {
   const [indices, setIndices] = useState<MarketIndex[]>(mockIndices);
   const [stocks, setStocks] = useState<StockQuote[]>(mockStocks);
   const [tickerItems, setTickerItems] = useState(mockTickerData);
+  const [news, setNews] = useState<NewsArticle[]>([]);
   const [isLive, setIsLive] = useState(false);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -21,10 +24,11 @@ export default function Dashboard() {
   // Fetch live data
   const fetchAllData = async () => {
     try {
-      const [liveIndices, liveStocks, liveTicker] = await Promise.all([
+      const [liveIndices, liveStocks, liveTicker, liveNews] = await Promise.all([
         fetchLiveIndices(),
         fetchLiveStocks(),
         fetchTickerData(),
+        fetchLiveNews(),
       ]);
 
       if (liveIndices.length > 0) {
@@ -36,6 +40,9 @@ export default function Dashboard() {
       }
       if (liveTicker.length > 0) {
         setTickerItems(liveTicker);
+      }
+      if (liveNews.length > 0) {
+        setNews(liveNews);
       }
       setLastUpdate(new Date());
     } catch (err) {
@@ -72,7 +79,7 @@ export default function Dashboard() {
   [stocks]);
 
   const latestSignals = mockSignals.slice(0, 3);
-  const latestNews = mockNews.slice(0, 4);
+  const latestNews = news.slice(0, 4);
 
   return (
     <div className="fade-in">
@@ -116,6 +123,9 @@ export default function Dashboard() {
       </div>
 
       <div className="page-body">
+        {/* Active Executed Orders & AI Auto-Trader Bot */}
+        <OrdersList livePrices={stocks.reduce((acc, s) => ({ ...acc, [s.symbol]: s.price }), {})} />
+
         {/* Market Indices */}
         <div className="section-gap">
           <div className="metric-grid stagger">
@@ -292,10 +302,14 @@ export default function Dashboard() {
               <span className="nav-badge">LIVE</span>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-sm)' }}>
-              {latestNews.map(n => (
+              {latestNews.length === 0 ? (
+                 <div style={{ textAlign: 'center', padding: '20px', color: 'var(--text-muted)' }}>Loading latest news...</div>
+              ) : latestNews.map(n => (
                 <div key={n.id} className="news-card" style={{ padding: 'var(--space-md)' }}>
                   <div className="news-card-header">
-                    <span className="news-card-title" style={{ fontSize: '0.85rem' }}>{n.title}</span>
+                    <span className="news-card-title" style={{ fontSize: '0.85rem' }}>
+                       <a href={n.url} target="_blank" rel="noreferrer" style={{ color: 'inherit', textDecoration: 'none' }}>{n.title}</a>
+                    </span>
                     <span className={`badge badge-${n.sentiment}`}>{n.sentiment}</span>
                   </div>
                   <div className="news-card-meta">
